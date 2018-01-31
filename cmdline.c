@@ -309,7 +309,6 @@ bool cmdlineParse(int argc, char* argv[], honggfuzz_t* hfuzz) {
                                 .options = NULL,
                                 .libraryHandle = NULL,
                         },
-        .staticMutatorCnt = 0U,
 
         .state = _HF_STATE_UNSET,
         .feedback = NULL,

@@ -371,9 +371,43 @@ bool input_prepareDynamicInput(run_t* run) {
     return true;
 }
 
+void cleanupMutator(honggfuzz_t * hfuzz) {
+    if (!hfuzz->mutator.libraryHandle)
+        return;
+
+    //Cleanup dynamic file mutators
+    struct dynfile_t* dynfile, *prev_dynfile;
+    dynfile = TAILQ_FIRST(&hfuzz->dynfileq);
+    while(dynfile) {
+        prev_dynfile = dynfile;
+        dynfile = TAILQ_NEXT(dynfile, pointers);
+        if (prev_dynfile->mutator_state) {
+            hfuzz->mutator.funcs.cleanup(prev_dynfile->mutator_state);
+            prev_dynfile->mutator_state = NULL;
+        }
+    }
+
+    //Cleanup static file mutators
+    struct mutator_state_t* state, *prev;
+    state = TAILQ_FIRST(&hfuzz->staticMutators);
+    while(state) {
+        prev = state;
+        state = TAILQ_NEXT(state, pointers);
+        if (prev->state) {
+            hfuzz->mutator.funcs.cleanup(prev->state);
+        }
+        free(prev);
+    }
+    TAILQ_INIT(&hfuzz->staticMutators);
+
+    //Close the mutator library
+    dlclose(hfuzz->mutator.libraryHandle);
+    hfuzz->mutator.libraryHandle = NULL;
+}
+
 struct mutator_state_t * getMutatorState(honggfuzz_t * hfuzz, char * fname, uint8_t * buffer, size_t length) {
     struct mutator_state_t* state = TAILQ_FIRST(&hfuzz->staticMutators);
-    for (uint64_t i = 0; i < hfuzz->staticMutatorCnt; i++) {
+    while(state) {
         if (!strcmp(state->filename, fname)) {
             return state;
         }
@@ -388,7 +422,6 @@ struct mutator_state_t * getMutatorState(honggfuzz_t * hfuzz, char * fname, uint
         LOG_F("Failed to create mutator for %s with options %s", fname, hfuzz->mutator.options)
     }
     TAILQ_INSERT_TAIL(&hfuzz->staticMutators, state, pointers);
-    hfuzz->staticMutatorCnt++;
     return state;
 }
 

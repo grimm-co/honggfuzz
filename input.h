@@ -36,5 +36,6 @@ extern bool input_prepareDynamicInput(run_t* run);
 extern bool input_prepareStaticFile(run_t* run, bool rewind);
 extern bool input_prepareExternalFile(run_t* run);
 extern bool input_postProcessFile(run_t* run);
+extern void cleanupMutator(honggfuzz_t * hfuzz);
 
 #endif /* ifndef _HF_INPUT_H_ */

@@ -260,6 +260,9 @@ int main(int argc, char** argv) {
     if (hfuzz.socketFuzzer) {
         cleanupSocketFuzzer();
     }
+    if (hfuzz.mutator.libraryHandle) {
+        cleanupMutator(&hfuzz);
+    }
 
     return EXIT_SUCCESS;
 }
