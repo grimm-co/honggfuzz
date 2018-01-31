@@ -24,6 +24,7 @@
 #include "input.h"
 
 #include <dirent.h>
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -303,7 +304,29 @@ bool input_parseBlacklist(honggfuzz_t* hfuzz) {
     return true;
 }
 
+bool input_parseMutator(honggfuzz_t* hfuzz) {
+    void(*init)(mutator_t * m);
+
+    hfuzz->mutator.libraryHandle = dlopen(hfuzz->mutator.libraryFile, RTLD_LAZY);
+    if (!hfuzz->mutator.libraryHandle) {
+        LOG_F("Failed to load mutator library %s: %s", hfuzz->mutator.libraryFile, dlerror());
+        return false;
+    }
+    init = (void(*)(mutator_t *)) dlsym(hfuzz->mutator.libraryHandle, "init");
+    if (!init) {
+        LOG_F("Invalid mutator library %s, missing init function", hfuzz->mutator.libraryFile);
+        dlclose(hfuzz->mutator.libraryHandle);
+        hfuzz->mutator.libraryHandle = NULL;
+        return false;
+    }
+
+    init(&hfuzz->mutator.funcs);
+    LOG_I("Loaded %s mutator library", hfuzz->mutator.libraryFile);
+    return true;
+}
+
 bool input_prepareDynamicInput(run_t* run) {
+    int mutation_status = 0;
     run->origFileName = "[DYNAMIC]";
 
     {
@@ -326,13 +349,53 @@ bool input_prepareDynamicInput(run_t* run) {
 
     input_setSize(run, run->dynfileqCurrent->size);
     memcpy(run->dynamicFile, run->dynfileqCurrent->data, run->dynfileqCurrent->size);
-    mangle_mangleContent(run);
+    if (run->dynfileqCurrent->mutator_state) {
+        mutation_status = run->global->mutator.funcs.mutate(run->dynfileqCurrent->mutator_state,
+            (char *)run->dynamicFile, run->global->maxFileSz);
+        if (mutation_status < 0) { //mutator failed to mutate buffer
+            LOG_F("Mutator %s failed to mutate the given buffer", run->global->mutator.libraryFile);
+        } else if(mutation_status == 0) { //mutator has finished all possible mutations on buffer
+            LOG_D("Mutator %s finished mutating input for dynamic file, switching to"
+                " built-in mutators", run->global->mutator.libraryFile);
+            run->global->mutator.funcs.cleanup(run->dynfileqCurrent->mutator_state);
+            run->dynfileqCurrent->mutator_state = NULL;
+        } else { //successfully mutated buffer
+            input_setSize(run, mutation_status);
+        }
+    }
+
+    if(!mutation_status) {
+        mangle_mangleContent(run);
+    }
 
     return true;
 }
 
+struct mutator_state_t * getMutatorState(honggfuzz_t * hfuzz, char * fname, uint8_t * buffer, size_t length) {
+    struct mutator_state_t* state = TAILQ_FIRST(&hfuzz->staticMutators);
+    for (uint64_t i = 0; i < hfuzz->staticMutatorCnt; i++) {
+        if (!strcmp(state->filename, fname)) {
+            return state;
+        }
+        state = TAILQ_NEXT(state, pointers);
+    }
+
+    //Not found, create one
+    state = (struct mutator_state_t*)util_Malloc(sizeof(struct mutator_state_t));
+    snprintf(state->filename, sizeof(state->filename), "%s", fname);
+    state->state = hfuzz->mutator.funcs.create((char *)hfuzz->mutator.options, NULL, (char *)buffer, length);
+    if (!state->state) {
+        LOG_F("Failed to create mutator for %s with options %s", fname, hfuzz->mutator.options)
+    }
+    TAILQ_INSERT_TAIL(&hfuzz->staticMutators, state, pointers);
+    hfuzz->staticMutatorCnt++;
+    return state;
+}
+
 bool input_prepareStaticFile(run_t* run, bool rewind) {
     static __thread char fname[PATH_MAX];
+    int mutation_status = 0;
+
     if (!input_getNext(run, fname, /* rewind= */ rewind)) {
         return false;
     }
@@ -345,7 +408,26 @@ bool input_prepareStaticFile(run_t* run, bool rewind) {
     }
 
     input_setSize(run, fileSz);
-    mangle_mangleContent(run);
+    if (run->global->mutator.libraryHandle) {
+        struct mutator_state_t * state = getMutatorState(run->global, fname, run->dynamicFile, fileSz);
+        if (state->state) {
+            mutation_status = run->global->mutator.funcs.mutate(state->state,
+                (char *)run->dynamicFile, run->global->maxFileSz);
+            if (mutation_status < 0) { //mutator failed to mutate buffer
+                LOG_F("Mutator %s failed to mutate %s", run->global->mutator.libraryFile, fname);
+            } else if (mutation_status == 0) { //mutator has finished all possible mutations on buffer
+                LOG_D("Mutator %s finished mutating input for %s, switching to built-in mutators",
+                    run->global->mutator.libraryFile, fname);
+                run->global->mutator.funcs.cleanup(state->state);
+                state->state = NULL;
+            } else { //successfully mutated buffer
+                input_setSize(run, mutation_status);
+            }
+        }
+    }
+    if (!mutation_status) {
+        mangle_mangleContent(run);
+    }
 
     return true;
 }

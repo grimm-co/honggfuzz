@@ -118,6 +118,15 @@ static void fuzz_addFileToFileQ(honggfuzz_t* hfuzz, const uint8_t* data, size_t 
     dynfile->size = len;
     dynfile->data = (uint8_t*)util_Malloc(len);
     memcpy(dynfile->data, data, len);
+    if (hfuzz->mutator.libraryHandle) {
+        dynfile->mutator_state = hfuzz->mutator.funcs.create((char *)hfuzz->mutator.options, NULL,
+           (char *)dynfile->data, dynfile->size);
+        if (!dynfile->mutator_state) {
+            LOG_F("Failed to create mutator with options %s", hfuzz->mutator.options)
+        }
+    } else {
+        dynfile->mutator_state = NULL;
+    }
 
     MX_SCOPED_RWLOCK_WRITE(&hfuzz->dynfileq_mutex);
     TAILQ_INSERT_TAIL(&hfuzz->dynfileq, dynfile, pointers);

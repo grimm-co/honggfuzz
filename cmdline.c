@@ -303,6 +303,14 @@ bool cmdlineParse(int argc, char* argv[], honggfuzz_t* hfuzz) {
         .dictionaryFile = NULL,
         .dictionaryCnt = 0,
 
+        .mutator =
+                        {
+                                .libraryFile = NULL,
+                                .options = NULL,
+                                .libraryHandle = NULL,
+                        },
+        .staticMutatorCnt = 0U,
+
         .state = _HF_STATE_UNSET,
         .feedback = NULL,
         .bbFd = -1,
@@ -376,6 +384,7 @@ bool cmdlineParse(int argc, char* argv[], honggfuzz_t* hfuzz) {
 
     TAILQ_INIT(&hfuzz->dynfileq);
     TAILQ_INIT(&hfuzz->dictq);
+    TAILQ_INIT(&hfuzz->staticMutators);
 
     // clang-format off
     struct custom_option custom_opts[] = {
@@ -421,6 +430,8 @@ bool cmdlineParse(int argc, char* argv[], honggfuzz_t* hfuzz) {
         { { "no_fb_timeout", required_argument, NULL, 0x106 }, "Skip feedback if the process has timeouted (default: false)" },
         { { "exit_upon_crash", no_argument, NULL, 0x107 }, "Exit upon seeing the first crash (default: false)" },
         { { "socket_fuzzer", no_argument, NULL, 0x10b }, "Instrument external fuzzer via socket" },
+        { { "mutator_library", required_argument, NULL, 'm' }, "Mutator library file to use when mangling input" },
+        { { "mutator_options", required_argument, NULL, 'o' }, "Options to the specified mutator library" },
 
 #if defined(_HF_ARCH_LINUX)
         { { "linux_symbols_bl", required_argument, NULL, 0x504 }, "Symbols blacklist filter file (one entry per line)" },
@@ -453,7 +464,7 @@ bool cmdlineParse(int argc, char* argv[], honggfuzz_t* hfuzz) {
     int opt_index = 0;
     for (;;) {
         int c = getopt_long(
-            argc, argv, "-?hQvVsuPxf:dqe:W:r:c:F:t:R:n:N:l:p:g:E:w:B:CzTS", opts, &opt_index);
+            argc, argv, "-?hQvVsuPxf:dqe:W:r:c:F:t:R:n:N:l:p:g:E:w:B:CzTSm:o:", opts, &opt_index);
         if (c < 0) break;
 
         switch (c) {
@@ -613,6 +624,12 @@ bool cmdlineParse(int argc, char* argv[], honggfuzz_t* hfuzz) {
                 break;
             case 'B':
                 hfuzz->blacklistFile = optarg;
+                break;
+            case 'm':
+                hfuzz->mutator.libraryFile = optarg;
+                break;
+            case 'o':
+                hfuzz->mutator.options = optarg;
                 break;
 #if defined(_HF_ARCH_LINUX)
             case 0x500:

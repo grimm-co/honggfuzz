@@ -209,6 +209,10 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (hfuzz.mutator.libraryFile && (input_parseMutator(&hfuzz) == false)) {
+        LOG_F("Couldn't load mutator library %s", hfuzz.mutator.libraryFile);
+    }
+
     /*
      * So far, so good
      */

@@ -36,6 +36,7 @@
 #include <time.h>
 
 #include "libhfcommon/util.h"
+#include "mutator.h"
 
 #define PROG_NAME "honggfuzz"
 #define PROG_VERSION "1.3"
@@ -158,6 +159,7 @@ typedef enum {
 struct dynfile_t {
     uint8_t* data;
     size_t size;
+    void * mutator_state;
     TAILQ_ENTRY(dynfile_t)
     pointers;
 };
@@ -166,6 +168,13 @@ struct strings_t {
     char* s;
     size_t len;
     TAILQ_ENTRY(strings_t)
+    pointers;
+};
+
+struct mutator_state_t {
+    void * state;
+    char filename[PATH_MAX];
+    TAILQ_ENTRY(mutator_state_t)
     pointers;
 };
 
@@ -237,6 +246,15 @@ typedef struct {
     const char* dictionaryFile;
     TAILQ_HEAD(strq_t, strings_t) dictq;
     size_t dictionaryCnt;
+
+    struct {
+        const char* libraryFile;
+        const char* options;
+        void * libraryHandle;
+        mutator_t funcs;
+    } mutator;
+    TAILQ_HEAD(mutators, mutator_state_t) staticMutators;
+    size_t staticMutatorCnt;
 
     fuzzState_t state;
     feedback_t* feedback;
