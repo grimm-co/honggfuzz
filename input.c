@@ -389,6 +389,7 @@ void cleanupMutator(honggfuzz_t * hfuzz) {
 
     //Cleanup static file mutators
     struct mutator_state_t* state, *prev;
+    MX_SCOPED_RWLOCK_WRITE(&hfuzz->static_mutator_mutex);
     state = TAILQ_FIRST(&hfuzz->staticMutators);
     while(state) {
         prev = state;
@@ -406,15 +407,20 @@ void cleanupMutator(honggfuzz_t * hfuzz) {
 }
 
 struct mutator_state_t * getMutatorState(honggfuzz_t * hfuzz, char * fname, uint8_t * buffer, size_t length) {
+    MX_RWLOCK_READ(&hfuzz->static_mutator_mutex);
     struct mutator_state_t* state = TAILQ_FIRST(&hfuzz->staticMutators);
     while(state) {
         if (!strcmp(state->filename, fname)) {
+            MX_RWLOCK_UNLOCK(&hfuzz->static_mutator_mutex);
             return state;
         }
         state = TAILQ_NEXT(state, pointers);
     }
 
     //Not found, create one
+    MX_RWLOCK_UNLOCK(&hfuzz->static_mutator_mutex);
+    MX_RWLOCK_WRITE(&hfuzz->static_mutator_mutex);
+
     state = (struct mutator_state_t*)util_Malloc(sizeof(struct mutator_state_t));
     snprintf(state->filename, sizeof(state->filename), "%s", fname);
     state->state = hfuzz->mutator.funcs.create((char *)hfuzz->mutator.options, NULL, (char *)buffer, length);
@@ -422,6 +428,7 @@ struct mutator_state_t * getMutatorState(honggfuzz_t * hfuzz, char * fname, uint
         LOG_F("Failed to create mutator for %s with options %s", fname, hfuzz->mutator.options)
     }
     TAILQ_INSERT_TAIL(&hfuzz->staticMutators, state, pointers);
+    MX_RWLOCK_UNLOCK(&hfuzz->static_mutator_mutex);
     return state;
 }
 

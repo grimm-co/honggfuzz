@@ -310,6 +310,7 @@ bool cmdlineParse(int argc, char* argv[], honggfuzz_t* hfuzz) {
                                 .libraryHandle = NULL,
                         },
 
+        .static_mutator_mutex = PTHREAD_RWLOCK_INITIALIZER,
         .state = _HF_STATE_UNSET,
         .feedback = NULL,
         .bbFd = -1,

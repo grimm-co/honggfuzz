@@ -254,6 +254,7 @@ typedef struct {
         mutator_t funcs;
     } mutator;
     TAILQ_HEAD(mutators, mutator_state_t) staticMutators;
+    pthread_rwlock_t static_mutator_mutex;
 
     fuzzState_t state;
     feedback_t* feedback;
