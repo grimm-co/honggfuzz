@@ -175,6 +175,7 @@ static void fuzz_setDynamicMainState(run_t* run) {
     }
 
     LOG_I("Entering phase 2/2: Dynamic Main");
+    snprintf(run->origFileName, sizeof(run->origFileName), "[DYNAMIC]");
     ATOMIC_SET(run->global->state, _HF_STATE_DYNAMIC_MAIN);
 
     /*
@@ -425,7 +426,6 @@ static void fuzz_fuzzLoop(run_t* run) {
     run->exception = 0;
     run->report[0] = '\0';
     run->mainWorker = true;
-    run->origFileName = "DYNAMIC";
     run->mutationsPerRun = run->global->mutationsPerRun;
     run->dynamicFileSz = 0;
     run->dynamicFileCopyFd = -1,
@@ -470,7 +470,6 @@ static void fuzz_fuzzLoopSocket(run_t* run) {
     run->exception = 0;
     run->report[0] = '\0';
     run->mainWorker = true;
-    run->origFileName = "DYNAMIC";
     run->mutationsPerRun = run->global->mutationsPerRun;
     run->dynamicFileSz = 0;
     run->dynamicFileCopyFd = -1,
@@ -550,6 +549,7 @@ static void* fuzz_threadNew(void* arg) {
         .fuzzNo = fuzzNo,
         .persistentSock = -1,
         .tmOutSignaled = false,
+        .origFileName = "[DYNAMIC]",
 
         .linux.attachedPid = 0,
     };
@@ -557,7 +557,7 @@ static void* fuzz_threadNew(void* arg) {
     /* Do not try to handle input files with socketfuzzer */
     if (!hfuzz->socketFuzzer) {
         if (!(run.dynamicFile = files_mapSharedMem(
-                  hfuzz->maxFileSz, &run.dynamicFileFd, run.global->io.workDir))) {
+                  hfuzz->maxFileSz, &run.dynamicFileFd, "hfuzz-input", run.global->io.workDir))) {
             LOG_F("Couldn't create an input file of size: %zu", hfuzz->maxFileSz);
         }
     }

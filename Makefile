@@ -26,7 +26,7 @@ LD = $(CC)
 BIN := honggfuzz
 HFUZZ_CC_BIN := hfuzz_cc/hfuzz-cc
 HFUZZ_CC_SRCS := hfuzz_cc/hfuzz-cc.c
-COMMON_CFLAGS := -D_GNU_SOURCE -Wall -Werror -Wframe-larger-than=131072 -Wno-format-truncation -I.
+COMMON_CFLAGS := -D_GNU_SOURCE -Wall -Werror -Wno-format-truncation -I.
 COMMON_LDFLAGS := -lm libhfcommon/libhfcommon.a
 COMMON_SRCS := $(sort $(wildcard *.c))
 CFLAGS ?= -O3
@@ -105,10 +105,6 @@ else ifeq ($(OS),Darwin)
     OSX_SDK_VERSION := $(shell xcrun --show-sdk-version)
     SDK_NAME :=macosx$(OSX_SDK_VERSION)
     SDK := $(shell xcrun --sdk $(SDK_NAME) --show-sdk-path 2>/dev/null)
-    ifeq (,$(findstring MacOSX.platform,$(SDK)))
-        XC_PATH := $(shell xcode-select -p)
-        $(error $(SDK_NAME) not found in $(XC_PATH))
-    endif
 
     CC := $(shell xcrun --sdk $(SDK_NAME) --find cc)
     LD := $(shell xcrun --sdk $(SDK_NAME) --find cc)
@@ -406,9 +402,9 @@ libhfnetdriver/netdriver.o: libhfcommon/files.h libhfcommon/common.h
 libhfnetdriver/netdriver.o: libhfcommon/log.h libhfcommon/ns.h
 libhfuzz/instrument.o: libhfuzz/instrument.h honggfuzz.h libhfcommon/util.h
 libhfuzz/instrument.o: libhfcommon/common.h libhfcommon/log.h
-libhfuzz/linux.o: libhfcommon/common.h libhfuzz/libhfuzz.h
-libhfuzz/linux.o: libhfcommon/files.h libhfcommon/common.h libhfcommon/log.h
-libhfuzz/linux.o: libhfcommon/ns.h
+libhfuzz/linux.o: libhfcommon/common.h libhfcommon/files.h
+libhfuzz/linux.o: libhfcommon/common.h libhfcommon/log.h libhfcommon/ns.h
+libhfuzz/linux.o: libhfuzz/libhfuzz.h
 libhfuzz/main.o: honggfuzz.h libhfcommon/util.h libhfcommon/log.h
 libhfuzz/main.o: libhfuzz/persistent.h
 libhfuzz/memorycmp.o: libhfcommon/common.h libhfuzz/instrument.h

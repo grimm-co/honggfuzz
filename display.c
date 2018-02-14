@@ -45,9 +45,11 @@
 #define ESC_BOLD "\033[1m"
 #define ESC_RED "\033[31m"
 #define ESC_RESET "\033[0m"
-#define ESC_SCROLL(x, y) "\033[" #x ";" #y "r"
+#define ESC_SCROLL_REGION(x, y) "\033[" #x ";" #y "r"
 #define ESC_SCROLL_DISABLE "\033[?7h"
-#define ESC_SCROLL_ENABLE "\033[r"
+#define ESC_SCROLL_RESET "\033[r"
+#define ESC_NAV_DOWN(x) "\033[" #x "B"
+#define ESC_NAV_HORIZ(x) "\033[" #x "G"
 #define ESC_RESET_SETTINGS "\033[!p"
 
 /* printf() nonmonetary separator. According to MacOSX's man it's supported there as well */
@@ -113,12 +115,6 @@ static void display_Duration(time_t elapsed_second, char* buf, size_t bufSz) {
 }
 
 static void display_displayLocked(honggfuzz_t* hfuzz) {
-    static bool firstDisplay = true;
-    if (firstDisplay) {
-        display_put(ESC_CLEAR_ALL);
-        firstDisplay = false;
-    }
-
     const time_t curr_time = time(NULL);
     const time_t elapsed_sec = curr_time - hfuzz->timing.timeStart;
 
@@ -156,9 +152,8 @@ static void display_displayLocked(honggfuzz_t* hfuzz) {
     MX_SCOPED_LOCK(logMutexGet());
 
     display_put(ESC_NAV(13, 1) ESC_CLEAR_ABOVE ESC_NAV(1, 1));
-    display_put("---------------------[" ESC_BOLD "%31s " ESC_RESET "]-------/ " ESC_BOLD
-                "%s %s" ESC_RESET " /-\n",
-        timeStr, PROG_NAME, PROG_VERSION);
+    display_put("------------------------[" ESC_BOLD "%31s " ESC_RESET "]----------------------\n",
+        timeStr);
     display_put("  Iterations : " ESC_BOLD "%" _HF_NONMON_SEP "zu" ESC_RESET, curr_exec_cnt);
     display_printKMG(curr_exec_cnt);
     if (hfuzz->mutationsMax) {
@@ -267,8 +262,9 @@ static void display_displayLocked(honggfuzz_t* hfuzz) {
             ATOMIC_GET(hfuzz->sanCovCnts.crashesCnt));
     }
     display_put("\n---------------------------------- [ " ESC_BOLD "LOGS" ESC_RESET
-                " ] ------------------------------------\n");
-    display_put(ESC_SCROLL(13, 999) ESC_NAV(999, 1));
+                " ] ------------------/ " ESC_BOLD "%s %s " ESC_RESET "/-",
+        PROG_NAME, PROG_VERSION);
+    display_put(ESC_SCROLL_REGION(13, ) ESC_NAV_HORIZ(1) ESC_NAV_DOWN(500));
 }
 
 void display_createTargetStr(honggfuzz_t* hfuzz) {
@@ -302,10 +298,11 @@ void display_display(honggfuzz_t* hfuzz) {
 }
 
 void display_fini(void) {
-    display_put(ESC_SCROLL_ENABLE ESC_NAV(999, 1));
+    display_put(ESC_SCROLL_RESET ESC_NAV_DOWN(500));
 }
 
 void display_init(void) {
     atexit(display_fini);
-    display_put(ESC_NAV(999, 1));
+    display_put(ESC_CLEAR_ALL);
+    display_put(ESC_NAV_DOWN(500));
 }

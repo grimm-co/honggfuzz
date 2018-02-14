@@ -39,7 +39,7 @@
 #include "mutator.h"
 
 #define PROG_NAME "honggfuzz"
-#define PROG_VERSION "1.3"
+#define PROG_VERSION "1.4"
 
 /* Name of the template which will be replaced with the proper name of the file */
 #define _HF_FILE_PLACEHOLDER "___FILE___"
@@ -320,7 +320,7 @@ typedef struct {
     pid_t pid;
     pid_t persistentPid;
     int64_t timeStartedMillis;
-    const char* origFileName;
+    char origFileName[PATH_MAX];
     char crashFileName[PATH_MAX];
     uint64_t pc;
     uint64_t backtrace;
