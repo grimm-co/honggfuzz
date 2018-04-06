@@ -5,7 +5,7 @@
  *
  * Author: Robert Swiecki <swiecki@google.com>
  *
- * Copyright 2010-2017 by Google Inc. All Rights Reserved.
+ * Copyright 2010-2018 by Google Inc. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -39,7 +39,7 @@
 #include "mutator.h"
 
 #define PROG_NAME "honggfuzz"
-#define PROG_VERSION "1.4"
+#define PROG_VERSION "1.5"
 
 /* Name of the template which will be replaced with the proper name of the file */
 #define _HF_FILE_PLACEHOLDER "___FILE___"
@@ -189,6 +189,13 @@ typedef struct {
 
 typedef struct {
     struct {
+        size_t threadsMax;
+        size_t threadsFinished;
+        uint32_t threadsActiveCnt;
+        pthread_t mainThread;
+        pid_t mainPid;
+    } threads;
+    struct {
         const char* inputDir;
         DIR* inputDirPtr;
         size_t fileCnt;
@@ -199,6 +206,9 @@ typedef struct {
         const char* covDirAll;
         const char* covDirNew;
         bool saveUnique;
+        size_t dynfileqCnt;
+        pthread_rwlock_t dynfileq_mutex;
+        TAILQ_HEAD(dyns_t, dynfile_t) dynfileq;
     } io;
     struct {
         int argc;
@@ -216,58 +226,60 @@ typedef struct {
         char* envs[128];
     } exe;
     struct {
-        size_t threadsMax;
-        size_t threadsFinished;
-        uint32_t threadsActiveCnt;
-        pthread_t mainThread;
-        pid_t mainPid;
-    } threads;
-    struct {
         time_t timeStart;
         time_t runEndTime;
         time_t tmOut;
         time_t lastCovUpdate;
         bool tmoutVTALRM;
     } timing;
-    bool useScreen;
-    bool useVerifier;
-    char cmdline_txt[65];
-    unsigned mutationsPerRun;
-    const char* blacklistFile;
-    uint64_t* blacklist;
-    size_t blacklistCnt;
-    size_t mutationsMax;
-    size_t maxFileSz;
-    char* reportFile;
-    bool skipFeedbackOnTimeout;
-    bool enableSanitizers;
-    bool monitorSIGABRT;
-    bool exitUponCrash;
-    const char* dictionaryFile;
-    TAILQ_HEAD(strq_t, strings_t) dictq;
-    size_t dictionaryCnt;
-
     struct {
         const char* libraryFile;
         const char* options;
         void * libraryHandle;
         mutator_t funcs;
+        TAILQ_HEAD(mutators, mutator_state_t) staticMutators;
+        pthread_rwlock_t static_mutator_mutex;
     } mutator;
-    TAILQ_HEAD(mutators, mutator_state_t) staticMutators;
-    pthread_rwlock_t static_mutator_mutex;
 
-    fuzzState_t state;
-    feedback_t* feedback;
-    int bbFd;
-
-    size_t dynfileqCnt;
-    TAILQ_HEAD(dyns_t, dynfile_t) dynfileq;
-    pthread_rwlock_t dynfileq_mutex;
-
-    pthread_mutex_t feedback_mutex;
-
-    bool socketFuzzer;
-
+    struct {
+        const char* dictionaryFile;
+        TAILQ_HEAD(strq_t, strings_t) dictq;
+        size_t dictionaryCnt;
+        size_t mutationsMax;
+        unsigned mutationsPerRun;
+        size_t maxFileSz;
+    } mutate;
+    struct {
+        bool useScreen;
+        char cmdline_txt[65];
+        int64_t lastDisplayMillis;
+    } display;
+    struct {
+        bool useVerifier;
+        bool exitUponCrash;
+        char* reportFile;
+        pthread_mutex_t report_mutex;
+        bool monitorSIGABRT;
+        size_t dynFileIterExpire;
+    } cfg;
+    struct {
+        bool enable;
+        sancovcnt_t sanCovCnts;
+        pthread_mutex_t sanCov_mutex;
+        const char* extSanOpts;
+        node_t* covMetadata;
+    } sanitizer;
+    struct {
+        fuzzState_t state;
+        feedback_t* feedbackMap;
+        int bbFd;
+        pthread_mutex_t feedback_mutex;
+        const char* blacklistFile;
+        uint64_t* blacklist;
+        size_t blacklistCnt;
+        bool skipFeedbackOnTimeout;
+        dynFileMethod_t dynFileMethod;
+    } feedback;
     struct {
         size_t mutationsCnt;
         size_t crashesCnt;
@@ -276,16 +288,11 @@ typedef struct {
         size_t blCrashesCnt;
         size_t timeoutedCnt;
     } cnts;
-
-    dynFileMethod_t dynFileMethod;
-    sancovcnt_t sanCovCnts;
-    pthread_mutex_t sanCov_mutex;
-    const char* extSanOpts;
-    size_t dynFileIterExpire;
-    node_t* covMetadata;
-
-    pthread_mutex_t report_mutex;
-
+    struct {
+        bool enabled;
+        int serverSocket;
+        int clientSocket;
+    } socketFuzzer;
     /* For the Linux code */
     struct {
         int exeFd;
@@ -308,11 +315,6 @@ typedef struct {
         bool useClone;
         sigset_t waitSigSet;
     } linux;
-
-    struct {
-        int serverSocket;
-        int clientSocket;
-    } socketFuzzerData;
 } honggfuzz_t;
 
 typedef struct {

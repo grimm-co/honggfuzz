@@ -3,10 +3,10 @@
  * honggfuzz - architecture dependent code (MAC OS X)
  * -----------------------------------------
  *
- * Author: Robert Swiecki <swiecki@google.com> Felix Gröbert
- * <groebert@google.com>
+ * Authors: Robert Swiecki <swiecki@google.com>
+ *          Felix Gröbert <groebert@google.com>
  *
- * Copyright 2010-2015 by Google Inc. All Rights Reserved.
+ * Copyright 2010-2018 by Google Inc. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -28,6 +28,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,6 +43,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "fuzz.h"
 #include "honggfuzz.h"
 #include "libhfcommon/common.h"
 #include "libhfcommon/files.h"
@@ -243,15 +245,16 @@ static bool arch_analyzeSignal(run_t* run, int status) {
     /*
      * Check if stackhash is blacklisted
      */
-    if (run->global->blacklist && (fastArray64Search(run->global->blacklist,
-                                       run->global->blacklistCnt, run->backtrace) != -1)) {
+    if (run->global->feedback.blacklist &&
+        (fastArray64Search(run->global->feedback.blacklist, run->global->feedback.blacklistCnt,
+             run->backtrace) != -1)) {
         LOG_I("Blacklisted stack hash '%" PRIx64 "', skipping", run->backtrace);
         ATOMIC_POST_INC(run->global->cnts.blCrashesCnt);
         return true;
     }
 
     /* If dry run mode, copy file with same name into workspace */
-    if (run->global->mutationsPerRun == 0U && run->global->useVerifier) {
+    if (run->global->mutate.mutationsPerRun == 0U && run->global->cfg.useVerifier) {
         snprintf(run->crashFileName, sizeof(run->crashFileName), "%s/%s", run->global->io.crashDir,
             run->origFileName);
     } else if (run->global->io.saveUnique) {
@@ -286,7 +289,7 @@ static bool arch_analyzeSignal(run_t* run, int status) {
 
     ATOMIC_POST_INC(run->global->cnts.uniqueCrashesCnt);
     /* If unique crash found, reset dynFile counter */
-    ATOMIC_CLEAR(run->global->dynFileIterExpire);
+    ATOMIC_CLEAR(run->global->cfg.dynFileIterExpire);
 
     arch_generateReport(run, termsig);
 
@@ -365,34 +368,58 @@ void arch_prepareParentAfterFork(run_t* run HF_ATTR_UNUSED) {
 }
 
 void arch_reapChild(run_t* run) {
-    /*
-     * First check manually if we have expired children
-     */
-    subproc_checkTimeLimit(run);
-
-    /*
-     * Now check for signals using wait4
-     */
-    int options = WUNTRACED;
-    if (run->global->timing.tmOut) {
-        options |= WNOHANG;
-    }
-
     for (;;) {
-        int status = 0;
-        while (wait4(run->pid, &status, options, NULL) != run->pid) {
-            if (run->global->timing.tmOut) {
+        if (run->global->exe.persistent) {
+            struct pollfd pfd = {
+                .fd = run->persistentSock,
+                .events = POLLIN,
+            };
+            int r = poll(&pfd, 1, 250 /* 0.25s */);
+            if (r == 0 || (r == -1 && errno == EINTR)) {
                 subproc_checkTimeLimit(run);
-                usleep(0.20 * 1000000);
+                subproc_checkTermination(run);
             }
+            if (r == -1 && errno != EINTR) {
+                PLOG_F("poll(fd=%d)", run->persistentSock);
+            }
+        }
+        if (subproc_persistentModeRoundDone(run)) {
+            break;
+        }
+
+        int status;
+        int flags = run->global->exe.persistent ? WNOHANG : 0;
+        int ret = waitpid(run->pid, &status, flags);
+        if (ret == 0) {
+            continue;
+        }
+        if (ret == -1 && errno == EINTR) {
+            subproc_checkTimeLimit(run);
+            continue;
+        }
+        if (ret == -1) {
+            PLOG_W("waitpid(pid=%d)", run->pid);
+            continue;
+        }
+        if (ret != run->pid) {
+            continue;
         }
 
         char strStatus[4096];
+        if (run->global->exe.persistent && ret == run->persistentPid &&
+            (WIFEXITED(status) || WIFSIGNALED(status))) {
+            run->persistentPid = 0;
+            if (!fuzz_isTerminating()) {
+                LOG_W("Persistent mode: PID %d exited with status: %s", ret,
+                    subproc_StatusToStr(status, strStatus, sizeof(strStatus)));
+            }
+        }
+
         LOG_D("Process (pid %d) came back with status: %s", run->pid,
             subproc_StatusToStr(status, strStatus, sizeof(strStatus)));
 
         if (arch_analyzeSignal(run, status)) {
-            return;
+            break;
         }
     }
 }
@@ -467,7 +494,7 @@ bool arch_archInit(honggfuzz_t* hfuzz) {
     }
 
     /* Default is true for all platforms except Android */
-    arch_sigs[SIGABRT].important = hfuzz->monitorSIGABRT;
+    arch_sigs[SIGABRT].important = hfuzz->cfg.monitorSIGABRT;
 
     /* Default is false */
     arch_sigs[SIGVTALRM].important = hfuzz->timing.tmoutVTALRM;

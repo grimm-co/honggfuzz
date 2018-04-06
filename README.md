@@ -4,7 +4,7 @@
 
 A security oriented, feedback-driven, evolutionary, easy-to-use fuzzer with interesting analysis options. See [USAGE](https://github.com/google/honggfuzz/blob/master/docs/USAGE.md) for the description of command-line options.
 
-  * It's __multi-process__ and __multi-threaded__: no need to run multiple copies of your fuzzer, as honggfuzz can unlock potential of all your available CPU cores with one process. The file corpus is automatically shared and improved between the fuzzing threads.
+  * It's __multi-process__ and __multi-threaded__: no need to run multiple copies of your fuzzer, as honggfuzz can unlock potential of all your available CPU cores with a single supervising process. The file corpus is automatically shared and improved between the fuzzing threads and fuzzed processes.
   * It's blazingly fast when in the [persistent fuzzing mode](https://github.com/google/honggfuzz/blob/master/docs/PersistentFuzzing.md)). A simple/empty _LLVMFuzzerTestOneInput_ function can be tested with __up to 1mo iterations per second__ on a relatively modern CPU (e.g. i7-6700K)
   * Has a [solid track record](#trophies) of uncovered security bugs: the __only__ (to the date) __vulnerability in OpenSSL with the [critical](https://www.openssl.org/news/secadv/20160926.txt) score mark__ was discovered by honggfuzz. See the [Trophies](#trophies) paragraph for the summary of findings to the date
   * Uses low-level interfaces to monitor processes (e.g. _ptrace_ under Linux). As opposed to other fuzzers, it __will discover and report hijacked/ignored signals__ (intercepted and potentially hidden by signal handlers)
@@ -25,7 +25,7 @@ A security oriented, feedback-driven, evolutionary, easy-to-use fuzzer with inte
 
 ## Code
 
-  * Latest stable version: [1.4](https://github.com/google/honggfuzz/releases), but using the __master__ branch is highly encouraged
+  * Latest stable version: [1.5](https://github.com/google/honggfuzz/releases)
   * [Changelog](https://github.com/google/honggfuzz/blob/master/CHANGELOG)
 
 ## Requirements
@@ -47,6 +47,9 @@ Honggfuzz has been used to find a few interesting security problems in major sof
     * [Remote crash in __mod\_http2__ • CVE-2017-7659](http://seclists.org/oss-sec/2017/q2/504)
     * [Use-after-free in __mod\_http2__ • CVE-2017-9789](http://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2017-9789)
     * [Memory leak in __mod\_auth\_digest__ • CVE-2017-9788](http://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2017-9788)
+    * [Out of bound access • CVE-2018-1301](http://seclists.org/oss-sec/2018/q1/265)
+    * [Write after free in HTTP/2 • CVE-2018-1302](http://seclists.org/oss-sec/2018/q1/268)
+    * [Out of bound read • CVE-2018-1303](http://seclists.org/oss-sec/2018/q1/266)
   * Various __SSL__ libs
     * [Remote OOB read in __OpenSSL__ • CVE-2015-1789]( https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2015-1789)
     * [Remote Use-after-Free (potential RCE, rated as __critical__) in __OpenSSL__ • CVE-2016-6309](https://www.openssl.org/news/secadv/20160926.txt)
@@ -66,6 +69,7 @@ Honggfuzz has been used to find a few interesting security problems in major sof
     * [__PHP/Python/Ruby__](https://github.com/dyjakan/interpreter-bugs)
     * [PHP WDDX](https://bugs.php.net/bug.php?id=74145)
     * [PHP](https://bugs.php.net/bug.php?id=74194)
+    * [Perl](https://www.nntp.perl.org/group/perl.perl5.porters/2018/03/msg250072.html)
   * [Double-free in __LibXMP__](https://github.com/cmatsuoka/libxmp/commit/bd1eb5cfcd802820073504c234c3f735e96c3355)
   * [Heap buffer overflow in SAPCAR • CVE-2017-8852](https://www.coresecurity.com/blog/sapcar-heap-buffer-overflow-crash-exploit)
   * [Crashes in __libbass__](http://seclists.org/oss-sec/2017/q4/185)
@@ -93,7 +97,9 @@ Honggfuzz has been used to find a few interesting security problems in major sof
   * [__Owl__: a system for finding concurrency attacks](https://github.com/hku-systems/owl)
   * [__honggfuzz-docker-apps__](https://github.com/skysider/honggfuzz_docker_apps)
   * [__FFW - Fuzzing For Worms__](https://github.com/dobin/ffw)
-  * [__honggfuzz-rs__: fuzzing Rust with Honggfuzz](https://github.com/PaulGrandperrin/honggfuzz-rs)
+  * [__honggfuzz-rs__: fuzzing Rust with Honggfuzz](https://github.com/rust-fuzz/honggfuzz-rs)
+  * [__roughenough-fuzz__](https://github.com/int08h/roughenough-fuzz)
+  * [__Rust's fuzztest__](https://docs.rs/crate/fuzztest)
 
 ## Examples
 

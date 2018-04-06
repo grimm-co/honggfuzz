@@ -5,7 +5,7 @@
  *
  * Author: Robert Swiecki <swiecki@google.com>
  *
- * Copyright 2010-2015 by Google Inc. All Rights Reserved.
+ * Copyright 2010-2018 by Google Inc. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -99,7 +99,7 @@ static unsigned getCpuUse(long num_cpu) {
     return cpuUse * 100 / sysconf(_SC_CLK_TCK);
 }
 
-static void display_Duration(time_t elapsed_second, char* buf, size_t bufSz) {
+static void getDuration(time_t elapsed_second, char* buf, size_t bufSz) {
     if (elapsed_second < 0) {
         snprintf(buf, bufSz, "----");
         return;
@@ -115,18 +115,19 @@ static void display_Duration(time_t elapsed_second, char* buf, size_t bufSz) {
 }
 
 static void display_displayLocked(honggfuzz_t* hfuzz) {
-    const time_t curr_time = time(NULL);
-    const time_t elapsed_sec = curr_time - hfuzz->timing.timeStart;
+    const time_t curr_sec = time(NULL);
+    const time_t elapsed_sec = curr_sec - hfuzz->timing.timeStart;
+    const int64_t curr_time_millis = util_timeNowMillis();
+    const int64_t elapsed_millis = curr_time_millis - hfuzz->display.lastDisplayMillis;
+    hfuzz->display.lastDisplayMillis = curr_time_millis;
 
     char lastCovStr[64];
-    display_Duration(
-        curr_time - ATOMIC_GET(hfuzz->timing.lastCovUpdate), lastCovStr, sizeof(lastCovStr));
+    getDuration(curr_sec - ATOMIC_GET(hfuzz->timing.lastCovUpdate), lastCovStr, sizeof(lastCovStr));
     char timeStr[64];
     if (ATOMIC_GET(hfuzz->timing.runEndTime)) {
-        display_Duration(
-            ATOMIC_GET(hfuzz->timing.runEndTime) - curr_time, timeStr, sizeof(timeStr));
+        getDuration(ATOMIC_GET(hfuzz->timing.runEndTime) - curr_sec, timeStr, sizeof(timeStr));
     } else {
-        display_Duration(elapsed_sec, timeStr, sizeof(timeStr));
+        getDuration(elapsed_sec, timeStr, sizeof(timeStr));
     }
 
     size_t curr_exec_cnt = ATOMIC_GET(hfuzz->cnts.mutationsCnt);
@@ -136,40 +137,38 @@ static void display_displayLocked(honggfuzz_t* hfuzz) {
      * Therefore at the end of fuzzing, the mutation counter might be higher
      * than hfuzz->mutationsMax
      */
-    if (hfuzz->mutationsMax > 0 && curr_exec_cnt > hfuzz->mutationsMax) {
-        curr_exec_cnt = hfuzz->mutationsMax;
+    if (hfuzz->mutate.mutationsMax > 0 && curr_exec_cnt > hfuzz->mutate.mutationsMax) {
+        curr_exec_cnt = hfuzz->mutate.mutationsMax;
     }
     float exeProgress = 0.0f;
-    if (hfuzz->mutationsMax > 0) {
-        exeProgress = ((float)curr_exec_cnt * 100 / hfuzz->mutationsMax);
+    if (hfuzz->mutate.mutationsMax > 0) {
+        exeProgress = ((float)curr_exec_cnt * 100 / hfuzz->mutate.mutationsMax);
     }
 
     static size_t prev_exec_cnt = 0UL;
-    size_t exec_per_sec = curr_exec_cnt - prev_exec_cnt;
+    size_t exec_per_millis =
+        elapsed_millis ? ((curr_exec_cnt - prev_exec_cnt) * 1000) / elapsed_millis : 0;
     prev_exec_cnt = curr_exec_cnt;
-
-    /* The lock should be acquired before any output is printed on the screen */
-    MX_SCOPED_LOCK(logMutexGet());
 
     display_put(ESC_NAV(13, 1) ESC_CLEAR_ABOVE ESC_NAV(1, 1));
     display_put("------------------------[" ESC_BOLD "%31s " ESC_RESET "]----------------------\n",
         timeStr);
     display_put("  Iterations : " ESC_BOLD "%" _HF_NONMON_SEP "zu" ESC_RESET, curr_exec_cnt);
     display_printKMG(curr_exec_cnt);
-    if (hfuzz->mutationsMax) {
+    if (hfuzz->mutate.mutationsMax) {
         display_put(" (out of: " ESC_BOLD "%" _HF_NONMON_SEP "zu" ESC_RESET " [%.2f%%])",
-            hfuzz->mutationsMax, exeProgress);
+            hfuzz->mutate.mutationsMax, exeProgress);
     }
-    switch (ATOMIC_GET(hfuzz->state)) {
+    switch (ATOMIC_GET(hfuzz->feedback.state)) {
         case _HF_STATE_STATIC:
             display_put("\n        Mode : " ESC_BOLD "Static" ESC_RESET "\n");
             break;
         case _HF_STATE_DYNAMIC_DRY_RUN:
             display_put(
-                "\n        Mode : " ESC_BOLD "Feedback Driven Dry Run (1/2)" ESC_RESET "\n");
+                "\n        Mode : [1/2] " ESC_BOLD "Feedback Driven Dry Run" ESC_RESET "\n");
             break;
         case _HF_STATE_DYNAMIC_MAIN:
-            display_put("\n        Mode : " ESC_BOLD "Feedback Driven Mode (2/2)" ESC_RESET "\n");
+            display_put("\n        Mode : [2/2] " ESC_BOLD "Feedback Driven Mode" ESC_RESET "\n");
             break;
         default:
             display_put("\n        Mode : " ESC_BOLD "Unknown" ESC_RESET "\n");
@@ -180,7 +179,7 @@ static void display_displayLocked(honggfuzz_t* hfuzz) {
         display_put("      Target : [" ESC_BOLD "%d" ESC_RESET "] '" ESC_BOLD "%s" ESC_RESET "'\n",
             hfuzz->linux.pid, hfuzz->linux.pidCmd);
     } else {
-        display_put("      Target : " ESC_BOLD "%s" ESC_RESET "\n", hfuzz->cmdline_txt);
+        display_put("      Target : " ESC_BOLD "%s" ESC_RESET "\n", hfuzz->display.cmdline_txt);
     }
 
     static long num_cpu = 0;
@@ -189,21 +188,20 @@ static void display_displayLocked(honggfuzz_t* hfuzz) {
     }
     unsigned cpuUse = getCpuUse(num_cpu);
     display_put("     Threads : " ESC_BOLD "%zu" ESC_RESET ", CPUs: " ESC_BOLD "%ld" ESC_RESET
-                ", CPU%%: " ESC_BOLD "%u" ESC_RESET "%% (" ESC_BOLD "%lu" ESC_RESET "%%/CPU)\n",
+                ", CPU%%: " ESC_BOLD "%u" ESC_RESET "%% [" ESC_BOLD "%lu" ESC_RESET "%%/CPU]\n",
         hfuzz->threads.threadsMax, num_cpu, cpuUse, cpuUse / num_cpu);
 
     size_t tot_exec_per_sec = elapsed_sec ? (curr_exec_cnt / elapsed_sec) : 0;
-    display_put("       Speed : " ESC_BOLD "%" _HF_NONMON_SEP "zu" ESC_RESET
-                "/sec"
-                " (avg: " ESC_BOLD "%" _HF_NONMON_SEP "zu" ESC_RESET ")\n",
-        exec_per_sec, tot_exec_per_sec);
+    display_put("       Speed : " ESC_BOLD "%" _HF_NONMON_SEP "zu" ESC_RESET "/sec [avg: " ESC_BOLD
+                "%" _HF_NONMON_SEP "zu" ESC_RESET "]\n",
+        exec_per_millis, tot_exec_per_sec);
 
     uint64_t crashesCnt = ATOMIC_GET(hfuzz->cnts.crashesCnt);
     /* colored the crash count as red when exist crash */
     display_put("     Crashes : " ESC_BOLD
                 "%s"
-                "%zu" ESC_RESET " (unique: %s" ESC_BOLD "%zu" ESC_RESET ", blacklist: " ESC_BOLD
-                "%zu" ESC_RESET ", verified: " ESC_BOLD "%zu" ESC_RESET ")\n",
+                "%zu" ESC_RESET " [unique: %s" ESC_BOLD "%zu" ESC_RESET ", blacklist: " ESC_BOLD
+                "%zu" ESC_RESET ", verified: " ESC_BOLD "%zu" ESC_RESET "]\n",
         crashesCnt > 0 ? ESC_RED : "", hfuzz->cnts.crashesCnt, crashesCnt > 0 ? ESC_RED : "",
         ATOMIC_GET(hfuzz->cnts.uniqueCrashesCnt), ATOMIC_GET(hfuzz->cnts.blCrashesCnt),
         ATOMIC_GET(hfuzz->cnts.verifiedCrashesCnt));
@@ -213,31 +211,31 @@ static void display_displayLocked(honggfuzz_t* hfuzz) {
     display_put(" Corpus Size : " ESC_BOLD "%" _HF_NONMON_SEP "zu" ESC_RESET ", max size: " ESC_BOLD
                 "%" _HF_NONMON_SEP "zu" ESC_RESET " bytes, init dir: " ESC_BOLD "%" _HF_NONMON_SEP
                 "zu" ESC_RESET " files\n",
-        hfuzz->dynfileqCnt, hfuzz->maxFileSz, ATOMIC_GET(hfuzz->io.fileCnt));
+        hfuzz->io.dynfileqCnt, hfuzz->mutate.maxFileSz, ATOMIC_GET(hfuzz->io.fileCnt));
     display_put("  Cov Update : " ESC_BOLD "%s" ESC_RESET " ago\n" ESC_RESET, lastCovStr);
     display_put("    Coverage :");
 
     /* HW perf specific counters */
-    if (hfuzz->dynFileMethod == 0) {
+    if (hfuzz->feedback.dynFileMethod == 0) {
         display_put(" [none]");
     }
-    if (hfuzz->dynFileMethod & _HF_DYNFILE_INSTR_COUNT) {
+    if (hfuzz->feedback.dynFileMethod & _HF_DYNFILE_INSTR_COUNT) {
         display_put(" hwi: " ESC_BOLD "%" _HF_NONMON_SEP PRIu64 ESC_RESET,
             ATOMIC_GET(hfuzz->linux.hwCnts.cpuInstrCnt));
     }
-    if (hfuzz->dynFileMethod & _HF_DYNFILE_BRANCH_COUNT) {
+    if (hfuzz->feedback.dynFileMethod & _HF_DYNFILE_BRANCH_COUNT) {
         display_put(" hwb: " ESC_BOLD "%" _HF_NONMON_SEP PRIu64 ESC_RESET,
             ATOMIC_GET(hfuzz->linux.hwCnts.cpuBranchCnt));
     }
-    if (hfuzz->dynFileMethod & _HF_DYNFILE_BTS_EDGE) {
+    if (hfuzz->feedback.dynFileMethod & _HF_DYNFILE_BTS_EDGE) {
         display_put(" bts: " ESC_BOLD "%" _HF_NONMON_SEP PRIu64 ESC_RESET,
             ATOMIC_GET(hfuzz->linux.hwCnts.bbCnt));
     }
-    if (hfuzz->dynFileMethod & _HF_DYNFILE_IPT_BLOCK) {
+    if (hfuzz->feedback.dynFileMethod & _HF_DYNFILE_IPT_BLOCK) {
         display_put(" ipt: " ESC_BOLD "%" _HF_NONMON_SEP PRIu64 ESC_RESET,
             ATOMIC_GET(hfuzz->linux.hwCnts.bbCnt));
     }
-    if (hfuzz->dynFileMethod & _HF_DYNFILE_SOFT) {
+    if (hfuzz->feedback.dynFileMethod & _HF_DYNFILE_SOFT) {
         uint64_t softCntPc = ATOMIC_GET(hfuzz->linux.hwCnts.softCntPc);
         uint64_t softCntEdge = ATOMIC_GET(hfuzz->linux.hwCnts.softCntEdge);
         uint64_t softCntCmp = ATOMIC_GET(hfuzz->linux.hwCnts.softCntCmp);
@@ -247,19 +245,19 @@ static void display_displayLocked(honggfuzz_t* hfuzz) {
     }
 
     /* Sanitizer coverage specific counters */
-    if (hfuzz->dynFileMethod & _HF_DYNFILE_SANCOV) {
-        uint64_t hitBB = ATOMIC_GET(hfuzz->sanCovCnts.hitBBCnt);
-        uint64_t totalBB = ATOMIC_GET(hfuzz->sanCovCnts.totalBBCnt);
+    if (hfuzz->feedback.dynFileMethod & _HF_DYNFILE_SANCOV) {
+        uint64_t hitBB = ATOMIC_GET(hfuzz->sanitizer.sanCovCnts.hitBBCnt);
+        uint64_t totalBB = ATOMIC_GET(hfuzz->sanitizer.sanCovCnts.totalBBCnt);
         float covPer = totalBB ? (((float)hitBB * 100) / totalBB) : 0.0;
         display_put(" #sancov_bb: " ESC_BOLD "%" _HF_NONMON_SEP PRIu64 ESC_RESET " (cov: " ESC_BOLD
                     "%.2f" ESC_RESET "%%)",
             hitBB, covPer);
         display_put(" #dso: " ESC_BOLD "%" _HF_NONMON_SEP PRIu64 ESC_RESET,
-            ATOMIC_GET(hfuzz->sanCovCnts.iDsoCnt));
+            ATOMIC_GET(hfuzz->sanitizer.sanCovCnts.iDsoCnt));
         display_put(" #newbb: " ESC_BOLD "%" _HF_NONMON_SEP PRIu64 ESC_RESET,
-            ATOMIC_GET(hfuzz->sanCovCnts.newBBCnt));
+            ATOMIC_GET(hfuzz->sanitizer.sanCovCnts.newBBCnt));
         display_put(" #crashes: " ESC_BOLD "%" _HF_NONMON_SEP PRIu64 ESC_RESET,
-            ATOMIC_GET(hfuzz->sanCovCnts.crashesCnt));
+            ATOMIC_GET(hfuzz->sanitizer.sanCovCnts.crashesCnt));
     }
     display_put("\n---------------------------------- [ " ESC_BOLD "LOGS" ESC_RESET
                 " ] ------------------/ " ESC_BOLD "%s %s " ESC_RESET "/-",
@@ -270,7 +268,7 @@ static void display_displayLocked(honggfuzz_t* hfuzz) {
 void display_createTargetStr(honggfuzz_t* hfuzz) {
     if (!hfuzz->exe.cmdline[0]) {
         LOG_W("Your fuzzed binary is not specified");
-        snprintf(hfuzz->cmdline_txt, sizeof(hfuzz->cmdline_txt), "[EMPTY]");
+        snprintf(hfuzz->display.cmdline_txt, sizeof(hfuzz->display.cmdline_txt), "[EMPTY]");
         return;
     }
 
@@ -281,19 +279,20 @@ void display_createTargetStr(honggfuzz_t* hfuzz) {
     }
 
     size_t len = strlen(tmpstr);
-    if (len <= (sizeof(hfuzz->cmdline_txt) - 1)) {
-        snprintf(hfuzz->cmdline_txt, sizeof(hfuzz->cmdline_txt), "%s", tmpstr);
+    if (len <= (sizeof(hfuzz->display.cmdline_txt) - 1)) {
+        snprintf(hfuzz->display.cmdline_txt, sizeof(hfuzz->display.cmdline_txt), "%s", tmpstr);
         return;
     }
 
-    snprintf(
-        hfuzz->cmdline_txt, sizeof(hfuzz->cmdline_txt), "%.32s.....%s", tmpstr, &tmpstr[len - 27]);
+    snprintf(hfuzz->display.cmdline_txt, sizeof(hfuzz->display.cmdline_txt), "%.32s.....%s", tmpstr,
+        &tmpstr[len - 27]);
 }
 
 void display_display(honggfuzz_t* hfuzz) {
     if (logIsTTY() == false) {
         return;
     }
+    MX_SCOPED_LOCK(logMutexGet());
     display_displayLocked(hfuzz);
 }
 

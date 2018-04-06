@@ -3,11 +3,10 @@
  * honggfuzz - the main file
  * -----------------------------------------
  *
- * Author:
- * Robert Swiecki <swiecki@google.com>
- * Felix Gröbert <groebert@google.com>
+ * Authors: Robert Swiecki <swiecki@google.com>
+ *          Felix Gröbert <groebert@google.com>
  *
- * Copyright 2010-2015 by Google Inc. All Rights Reserved.
+ * Copyright 2010-2018 by Google Inc. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -59,12 +58,14 @@ static void exitWithMsg(const char* msg, int exit_code) {
     abort();
 }
 
+static bool showDisplay = true;
 void sigHandler(int sig) {
     /* We should not terminate upon SIGALRM delivery */
     if (sig == SIGALRM) {
         if (fuzz_shouldTerminate()) {
             exitWithMsg("Terminating forcefully\n", EXIT_FAILURE);
         }
+        showDisplay = true;
         return;
     }
 
@@ -85,19 +86,20 @@ static void setupRLimits(void) {
         return;
     }
     if (rlim.rlim_max < 1024) {
-        LOG_E("RLIMIT_NOFILE max limit < 1024 (%u). Expect troubles!", (unsigned int)rlim.rlim_max);
+        LOG_E("RLIMIT_NOFILE max limit < 1024 (%zu). Expect troubles!", (size_t)rlim.rlim_max);
         return;
     }
-    rlim.rlim_cur = rlim.rlim_max;
+    rlim.rlim_cur = MIN(1024, rlim.rlim_max);  // we don't need more
     if (setrlimit(RLIMIT_NOFILE, &rlim) == -1) {
-        PLOG_E("Couldn't setrlimit(RLIMIT_NOFILE, cur=max=%u)", (unsigned int)rlim.rlim_max);
+        PLOG_E("Couldn't setrlimit(RLIMIT_NOFILE, cur=%zu/max=%zu)", (size_t)rlim.rlim_cur,
+            (size_t)rlim.rlim_max);
     }
 }
 
 static void setupMainThreadTimer(void) {
     const struct itimerval it = {
         .it_value = {.tv_sec = 1, .tv_usec = 0},
-        .it_interval = {.tv_sec = 1, .tv_usec = 0},
+        .it_interval = {.tv_sec = 0, .tv_usec = 1000 * 200},
     };
     if (setitimer(ITIMER_REAL, &it, NULL) == -1) {
         PLOG_F("setitimer(ITIMER_REAL)");
@@ -169,11 +171,11 @@ int main(int argc, char** argv) {
         LOG_F("Parsing of the cmd-line arguments failed");
     }
 
-    if (hfuzz.useScreen) {
+    if (hfuzz.display.useScreen) {
         display_init();
     }
 
-    if (hfuzz.socketFuzzer) {
+    if (hfuzz.socketFuzzer.enabled) {
         LOG_I(
             "No input file corpus loaded, the external socket_fuzzer is responsible for "
             "creating the fuzz data");
@@ -183,12 +185,12 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    if (hfuzz.dictionaryFile && (input_parseDictionary(&hfuzz) == false)) {
-        LOG_F("Couldn't parse dictionary file ('%s')", hfuzz.dictionaryFile);
+    if (hfuzz.mutate.dictionaryFile && (input_parseDictionary(&hfuzz) == false)) {
+        LOG_F("Couldn't parse dictionary file ('%s')", hfuzz.mutate.dictionaryFile);
     }
 
-    if (hfuzz.blacklistFile && (input_parseBlacklist(&hfuzz) == false)) {
-        LOG_F("Couldn't parse stackhash blacklist file ('%s')", hfuzz.blacklistFile);
+    if (hfuzz.feedback.blacklistFile && (input_parseBlacklist(&hfuzz) == false)) {
+        LOG_F("Couldn't parse stackhash blacklist file ('%s')", hfuzz.feedback.blacklistFile);
     }
 #define hfuzzl hfuzz.linux
     if (hfuzzl.symsBlFile &&
@@ -201,9 +203,9 @@ int main(int argc, char** argv) {
         LOG_F("Couldn't parse symbols whitelist file ('%s')", hfuzzl.symsWlFile);
     }
 
-    if (hfuzz.dynFileMethod != _HF_DYNFILE_NONE) {
-        if (!(hfuzz.feedback = files_mapSharedMem(
-                  sizeof(feedback_t), &hfuzz.bbFd, "hfuzz-feedback", hfuzz.io.workDir))) {
+    if (hfuzz.feedback.dynFileMethod != _HF_DYNFILE_NONE) {
+        if (!(hfuzz.feedback.feedbackMap = files_mapSharedMem(
+                  sizeof(feedback_t), &hfuzz.feedback.bbFd, "hfuzz-feedback", hfuzz.io.workDir))) {
             LOG_F("files_mapSharedMem(sz=%zu, dir='%s') failed", sizeof(feedback_t),
                 hfuzz.io.workDir);
         }
@@ -226,8 +228,9 @@ int main(int argc, char** argv) {
     setupMainThreadTimer();
 
     for (;;) {
-        if (hfuzz.useScreen) {
+        if (hfuzz.display.useScreen && showDisplay) {
             display_display(&hfuzz);
+            showDisplay = false;
         }
         if (ATOMIC_GET(sigReceived) > 0) {
             LOG_I("Signal %d (%s) received, terminating", ATOMIC_GET(sigReceived),
@@ -248,8 +251,8 @@ int main(int argc, char** argv) {
     fuzz_threadsStop(&hfuzz, threads);
 
     /* Clean-up global buffers */
-    if (hfuzz.blacklist) {
-        free(hfuzz.blacklist);
+    if (hfuzz.feedback.blacklist) {
+        free(hfuzz.feedback.blacklist);
     }
     if (hfuzz.linux.symsBl) {
         free(hfuzz.linux.symsBl);
@@ -257,7 +260,7 @@ int main(int argc, char** argv) {
     if (hfuzz.linux.symsWl) {
         free(hfuzz.linux.symsWl);
     }
-    if (hfuzz.socketFuzzer) {
+    if (hfuzz.socketFuzzer.enabled) {
         cleanupSocketFuzzer();
     }
     if (hfuzz.mutator.libraryHandle) {

@@ -5,7 +5,7 @@
  *
  * Author: Robert Swiecki <swiecki@google.com>
  *
- * Copyright 2010-2015 by Google Inc. All Rights Reserved.
+ * Copyright 2010-2018 by Google Inc. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -45,7 +45,7 @@
 #include "libhfcommon/log.h"
 #include "libhfcommon/util.h"
 
-ssize_t files_readFileToBufMax(char* fileName, uint8_t* buf, size_t fileMaxSz) {
+ssize_t files_readFileToBufMax(const char* fileName, uint8_t* buf, size_t fileMaxSz) {
     int fd = TEMP_FAILURE_RETRY(open(fileName, O_RDONLY | O_CLOEXEC));
     if (fd == -1) {
         PLOG_W("Couldn't open '%s' for R/O", fileName);

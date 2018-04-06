@@ -5,7 +5,7 @@
  *
  * Author: Robert Swiecki <swiecki@google.com>
  *
- * Copyright 2010-2016 by Google Inc. All Rights Reserved.
+ * Copyright 2010-2018 by Google Inc. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -71,7 +71,7 @@ __attribute__((hot)) inline static void perf_ptAnalyzePkt(run_t* run, struct pt_
     }
 
     ip &= _HF_PERF_BITMAP_BITSZ_MASK;
-    register uint8_t prev = ATOMIC_BTS(run->global->feedback->bbMapPc, ip);
+    register uint8_t prev = ATOMIC_BTS(run->global->feedback.feedbackMap->bbMapPc, ip);
     if (!prev) {
         run->linux.hwCnts.newBBCnt++;
     }

@@ -3,11 +3,10 @@
  * honggfuzz - routines dealing with subprocesses
  * -----------------------------------------
  *
- * Author:
- * Robert Swiecki <swiecki@google.com>
- * Felix Gröbert <groebert@google.com>
+ * Author: Robert Swiecki <swiecki@google.com>
+ *         Felix Gröbert <groebert@google.com>
  *
- * Copyright 2010-2015 by Google Inc. All Rights Reserved.
+ * Copyright 2010-2018 by Google Inc. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -205,8 +204,8 @@ static bool subproc_PrepareExecv(run_t* run) {
         /* close_stderr= */ run->global->exe.nullifyStdio);
 
     /* The bitmap structure */
-    if (run->global->bbFd != -1 && dup2(run->global->bbFd, _HF_BITMAP_FD) == -1) {
-        PLOG_E("dup2(%d, _HF_BITMAP_FD=%d)", run->global->bbFd, _HF_BITMAP_FD);
+    if (run->global->feedback.bbFd != -1 && dup2(run->global->feedback.bbFd, _HF_BITMAP_FD) == -1) {
+        PLOG_E("dup2(%d, _HF_BITMAP_FD=%d)", run->global->feedback.bbFd, _HF_BITMAP_FD);
         return false;
     }
 
@@ -311,7 +310,7 @@ static bool subproc_New(run_t* run) {
     LOG_D("Launched new process, PID: %d, thread: %" PRId32 " (concurrency: %zd)", run->pid,
         run->fuzzNo, run->global->threads.threadsMax);
 
-    if (run->global->socketFuzzer) {
+    if (run->global->socketFuzzer.enabled) {
         /* (dobin): Don't know why, but this is important */
         run->persistentPid = run->pid;
     }

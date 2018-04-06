@@ -5,7 +5,7 @@
  *
  * Author: Robert Swiecki <swiecki@google.com>
  *
- * Copyright 2010-2015 by Google Inc. All Rights Reserved.
+ * Copyright 2010-2018 by Google Inc. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -65,7 +65,7 @@ static inline bool arch_shouldAttach(run_t* run) {
     if (run->global->linux.pid > 0 && run->linux.attachedPid == run->global->linux.pid) {
         return false;
     }
-    if (run->global->socketFuzzer && run->linux.attachedPid == run->pid) {
+    if (run->global->socketFuzzer.enabled && run->linux.attachedPid == run->pid) {
         return false;
     }
     return true;
@@ -347,13 +347,13 @@ void arch_reapChild(run_t* run) {
             run->hasCrashed = true;
             break;
         }
-        if (run->global->socketFuzzer) {
+        if (run->global->socketFuzzer.enabled) {
             // Do not wait for new events
             break;
         }
     }
 
-    if (run->global->enableSanitizers) {
+    if (run->global->sanitizer.enable) {
         pid_t ptracePid = (run->global->linux.pid > 0) ? run->global->linux.pid : run->pid;
         char crashReport[PATH_MAX];
         snprintf(crashReport, sizeof(crashReport), "%s/%s.%d", run->global->io.workDir, kLOGPREFIX,
@@ -423,7 +423,7 @@ bool arch_archInit(honggfuzz_t* hfuzz) {
         break;
     }
 
-    if (hfuzz->dynFileMethod != _HF_DYNFILE_NONE) {
+    if (hfuzz->feedback.dynFileMethod != _HF_DYNFILE_NONE) {
         unsigned long major = 0, minor = 0;
         char* p = NULL;
 
@@ -442,8 +442,8 @@ bool arch_archInit(honggfuzz_t* hfuzz) {
          *  3) Intel's PT and new Intel BTS format require kernel >= 4.1
          */
         unsigned long checkMajor = 3, checkMinor = 7;
-        if ((hfuzz->dynFileMethod & _HF_DYNFILE_BTS_EDGE) ||
-            (hfuzz->dynFileMethod & _HF_DYNFILE_IPT_BLOCK)) {
+        if ((hfuzz->feedback.dynFileMethod & _HF_DYNFILE_BTS_EDGE) ||
+            (hfuzz->feedback.dynFileMethod & _HF_DYNFILE_IPT_BLOCK)) {
             checkMajor = 4;
             checkMinor = 1;
         }
@@ -521,7 +521,7 @@ bool arch_archInit(honggfuzz_t* hfuzz) {
      * increase number of major frames, since top 7-9 frames will be occupied
      * with sanitizer runtime library & libc symbols
      */
-    if (hfuzz->enableSanitizers && hfuzz->monitorSIGABRT) {
+    if (hfuzz->sanitizer.enable && hfuzz->cfg.monitorSIGABRT) {
         hfuzz->linux.numMajorFrames = 14;
     }
 

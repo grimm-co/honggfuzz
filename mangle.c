@@ -6,7 +6,7 @@
  * Author:
  * Robert Swiecki <swiecki@google.com>
  *
- * Copyright 2010-2015 by Google Inc. All Rights Reserved.
+ * Copyright 2010-2018 by Google Inc. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -70,11 +70,11 @@ static inline void mangle_Move(run_t* run, size_t off_from, size_t off_to, size_
 }
 
 static void mangle_Inflate(run_t* run, size_t off, size_t len) {
-    if (run->dynamicFileSz >= run->global->maxFileSz) {
+    if (run->dynamicFileSz >= run->global->mutate.maxFileSz) {
         return;
     }
-    if (len > (run->global->maxFileSz - run->dynamicFileSz)) {
-        len = run->global->maxFileSz - run->dynamicFileSz;
+    if (len > (run->global->mutate.maxFileSz - run->dynamicFileSz)) {
+        len = run->global->mutate.maxFileSz - run->dynamicFileSz;
     }
 
     input_setSize(run, run->dynamicFileSz + len);
@@ -109,13 +109,13 @@ static void mangle_Bit(run_t* run) {
 }
 
 static void mangle_DictionaryInsert(run_t* run) {
-    if (run->global->dictionaryCnt == 0) {
+    if (run->global->mutate.dictionaryCnt == 0) {
         mangle_Bit(run);
         return;
     }
 
-    uint64_t choice = util_rndGet(0, run->global->dictionaryCnt - 1);
-    struct strings_t* str = TAILQ_FIRST(&run->global->dictq);
+    uint64_t choice = util_rndGet(0, run->global->mutate.dictionaryCnt - 1);
+    struct strings_t* str = TAILQ_FIRST(&run->global->mutate.dictq);
     for (uint64_t i = 0; i < choice; i++) {
         str = TAILQ_NEXT(str, pointers);
     }
@@ -127,15 +127,15 @@ static void mangle_DictionaryInsert(run_t* run) {
 }
 
 static void mangle_Dictionary(run_t* run) {
-    if (run->global->dictionaryCnt == 0) {
+    if (run->global->mutate.dictionaryCnt == 0) {
         mangle_Bit(run);
         return;
     }
 
     size_t off = util_rndGet(0, run->dynamicFileSz - 1);
 
-    uint64_t choice = util_rndGet(0, run->global->dictionaryCnt - 1);
-    struct strings_t* str = TAILQ_FIRST(&run->global->dictq);
+    uint64_t choice = util_rndGet(0, run->global->mutate.dictionaryCnt - 1);
+    struct strings_t* str = TAILQ_FIRST(&run->global->mutate.dictq);
     for (uint64_t i = 0; i < choice; i++) {
         str = TAILQ_NEXT(str, pointers);
     }
@@ -495,7 +495,7 @@ static void mangle_CloneByte(run_t* run) {
 }
 
 static void mangle_Resize(run_t* run) {
-    size_t sz = util_rndGet(1, run->global->maxFileSz);
+    size_t sz = util_rndGet(1, run->global->mutate.maxFileSz);
     input_setSize(run, sz);
 }
 
@@ -569,7 +569,7 @@ void mangle_mangleContent(run_t* run) {
     };
 
     /* Max number of stacked changes is 6 */
-    uint64_t changesCnt = util_rndGet(1, run->global->mutationsPerRun);
+    uint64_t changesCnt = util_rndGet(1, run->global->mutate.mutationsPerRun);
 
     for (uint64_t x = 0; x < changesCnt; x++) {
         uint64_t choice = util_rndGet(0, ARRAYSIZE(mangleFuncs) - 1);

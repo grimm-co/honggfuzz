@@ -5,7 +5,7 @@
  *
  * Author: Robert Swiecki <swiecki@google.com>
  *
- * Copyright 2010-2015 by Google Inc. All Rights Reserved.
+ * Copyright 2010-2018 by Google Inc. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -54,8 +54,8 @@
 #include "libhfcommon/util.h"
 
 void input_setSize(run_t* run, size_t sz) {
-    if (sz > run->global->maxFileSz) {
-        PLOG_F("Too large size requested: %zu > maxSize: %zu", sz, run->global->maxFileSz);
+    if (sz > run->global->mutate.maxFileSz) {
+        PLOG_F("Too large size requested: %zu > maxSize: %zu", sz, run->global->mutate.maxFileSz);
     }
     run->dynamicFileSz = sz;
 }
@@ -92,9 +92,9 @@ static bool input_getDirStatsAndRewind(honggfuzz_t* hfuzz) {
             LOG_D("'%s' is not a regular file, skipping", fname);
             continue;
         }
-        if (hfuzz->maxFileSz != 0UL && st.st_size > (off_t)hfuzz->maxFileSz) {
+        if (hfuzz->mutate.maxFileSz != 0UL && st.st_size > (off_t)hfuzz->mutate.maxFileSz) {
             LOG_D("File '%s' is bigger than maximal defined file size (-F): %" PRId64 " > %" PRId64,
-                fname, (int64_t)st.st_size, (int64_t)hfuzz->maxFileSz);
+                fname, (int64_t)st.st_size, (int64_t)hfuzz->mutate.maxFileSz);
         }
         if ((size_t)st.st_size > maxSize) {
             maxSize = st.st_size;
@@ -103,13 +103,13 @@ static bool input_getDirStatsAndRewind(honggfuzz_t* hfuzz) {
     }
 
     ATOMIC_SET(hfuzz->io.fileCnt, fileCnt);
-    if (hfuzz->maxFileSz == 0U) {
+    if (hfuzz->mutate.maxFileSz == 0U) {
         if (maxSize < 8192) {
-            hfuzz->maxFileSz = 8192;
+            hfuzz->mutate.maxFileSz = 8192;
         } else if (maxSize > _HF_INPUT_MAX_SIZE) {
-            hfuzz->maxFileSz = _HF_INPUT_MAX_SIZE;
+            hfuzz->mutate.maxFileSz = _HF_INPUT_MAX_SIZE;
         } else {
-            hfuzz->maxFileSz = maxSize;
+            hfuzz->mutate.maxFileSz = maxSize;
         }
     }
 
@@ -118,7 +118,7 @@ static bool input_getDirStatsAndRewind(honggfuzz_t* hfuzz) {
     }
 
     LOG_D("Re-read the '%s', maxFileSz:%zu, number of usable files:%zu", hfuzz->io.inputDir,
-        hfuzz->maxFileSz, hfuzz->io.fileCnt);
+        hfuzz->mutate.maxFileSz, hfuzz->io.fileCnt);
 
     rewinddir(hfuzz->io.inputDirPtr);
 
@@ -198,9 +198,9 @@ bool input_init(honggfuzz_t* hfuzz) {
 }
 
 bool input_parseDictionary(honggfuzz_t* hfuzz) {
-    FILE* fDict = fopen(hfuzz->dictionaryFile, "rb");
+    FILE* fDict = fopen(hfuzz->mutate.dictionaryFile, "rb");
     if (fDict == NULL) {
-        PLOG_W("Couldn't open '%s' - R/O mode", hfuzz->dictionaryFile);
+        PLOG_W("Couldn't open '%s' - R/O mode", hfuzz->mutate.dictionaryFile);
         return false;
     }
     defer {
@@ -244,19 +244,19 @@ bool input_parseDictionary(honggfuzz_t* hfuzz) {
         struct strings_t* str = (struct strings_t*)util_Malloc(sizeof(struct strings_t));
         str->len = util_decodeCString(s);
         str->s = s;
-        hfuzz->dictionaryCnt += 1;
-        TAILQ_INSERT_TAIL(&hfuzz->dictq, str, pointers);
+        hfuzz->mutate.dictionaryCnt += 1;
+        TAILQ_INSERT_TAIL(&hfuzz->mutate.dictq, str, pointers);
 
         LOG_D("Dictionary: loaded word: '%s' (len=%zu)", str->s, str->len);
     }
-    LOG_I("Loaded %zu words from the dictionary", hfuzz->dictionaryCnt);
+    LOG_I("Loaded %zu words from the dictionary", hfuzz->mutate.dictionaryCnt);
     return true;
 }
 
 bool input_parseBlacklist(honggfuzz_t* hfuzz) {
-    FILE* fBl = fopen(hfuzz->blacklistFile, "rb");
+    FILE* fBl = fopen(hfuzz->feedback.blacklistFile, "rb");
     if (fBl == NULL) {
-        PLOG_W("Couldn't open '%s' - R/O mode", hfuzz->blacklistFile);
+        PLOG_W("Couldn't open '%s' - R/O mode", hfuzz->feedback.blacklistFile);
         return false;
     }
     defer {
@@ -274,32 +274,35 @@ bool input_parseBlacklist(honggfuzz_t* hfuzz) {
             break;
         }
 
-        if ((hfuzz->blacklist = util_Realloc(hfuzz->blacklist,
-                 (hfuzz->blacklistCnt + 1) * sizeof(hfuzz->blacklist[0]))) == NULL) {
-            PLOG_W(
-                "realloc failed (sz=%zu)", (hfuzz->blacklistCnt + 1) * sizeof(hfuzz->blacklist[0]));
+        if ((hfuzz->feedback.blacklist = util_Realloc(hfuzz->feedback.blacklist,
+                 (hfuzz->feedback.blacklistCnt + 1) * sizeof(hfuzz->feedback.blacklist[0]))) ==
+            NULL) {
+            PLOG_W("realloc failed (sz=%zu)",
+                (hfuzz->feedback.blacklistCnt + 1) * sizeof(hfuzz->feedback.blacklist[0]));
             return false;
         }
 
-        hfuzz->blacklist[hfuzz->blacklistCnt] = strtoull(lineptr, 0, 16);
-        LOG_D("Blacklist: loaded %'" PRIu64 "'", hfuzz->blacklist[hfuzz->blacklistCnt]);
+        hfuzz->feedback.blacklist[hfuzz->feedback.blacklistCnt] = strtoull(lineptr, 0, 16);
+        LOG_D("Blacklist: loaded %'" PRIu64 "'",
+            hfuzz->feedback.blacklist[hfuzz->feedback.blacklistCnt]);
 
         /* Verify entries are sorted so we can use interpolation search */
-        if (hfuzz->blacklistCnt > 1) {
-            if (hfuzz->blacklist[hfuzz->blacklistCnt - 1] > hfuzz->blacklist[hfuzz->blacklistCnt]) {
+        if (hfuzz->feedback.blacklistCnt > 1) {
+            if (hfuzz->feedback.blacklist[hfuzz->feedback.blacklistCnt - 1] >
+                hfuzz->feedback.blacklist[hfuzz->feedback.blacklistCnt]) {
                 LOG_F(
                     "Blacklist file not sorted. Use 'tools/createStackBlacklist.sh' to sort "
                     "records");
                 return false;
             }
         }
-        hfuzz->blacklistCnt += 1;
+        hfuzz->feedback.blacklistCnt += 1;
     }
 
-    if (hfuzz->blacklistCnt > 0) {
-        LOG_I("Loaded %zu stack hash(es) from the blacklist file", hfuzz->blacklistCnt);
+    if (hfuzz->feedback.blacklistCnt > 0) {
+        LOG_I("Loaded %zu stack hash(es) from the blacklist file", hfuzz->feedback.blacklistCnt);
     } else {
-        LOG_F("Empty stack hashes blacklist file '%s'", hfuzz->blacklistFile);
+        LOG_F("Empty stack hashes blacklist file '%s'", hfuzz->feedback.blacklistFile);
     }
     return true;
 }
@@ -327,19 +330,19 @@ bool input_parseMutator(honggfuzz_t* hfuzz) {
 
 bool input_prepareDynamicInput(run_t* run) {
     int mutation_status = 0;
-    run->origFileName = "[DYNAMIC]";
+    strncpy(run->origFileName, "[DYNAMIC]", sizeof(run->origFileName));
     {
-        MX_SCOPED_RWLOCK_READ(&run->global->dynfileq_mutex);
+        MX_SCOPED_RWLOCK_READ(&run->global->io.dynfileq_mutex);
 
-        if (run->global->dynfileqCnt == 0) {
+        if (run->global->io.dynfileqCnt == 0) {
             LOG_F("The dynamic file corpus is empty. This shouldn't happen");
         }
 
         if (run->dynfileqCurrent == NULL) {
-            run->dynfileqCurrent = TAILQ_FIRST(&run->global->dynfileq);
+            run->dynfileqCurrent = TAILQ_FIRST(&run->global->io.dynfileq);
         } else {
-            if (run->dynfileqCurrent == TAILQ_LAST(&run->global->dynfileq, dyns_t)) {
-                run->dynfileqCurrent = TAILQ_FIRST(&run->global->dynfileq);
+            if (run->dynfileqCurrent == TAILQ_LAST(&run->global->io.dynfileq, dyns_t)) {
+                run->dynfileqCurrent = TAILQ_FIRST(&run->global->io.dynfileq);
             } else {
                 run->dynfileqCurrent = TAILQ_NEXT(run->dynfileqCurrent, pointers);
             }
@@ -350,7 +353,7 @@ bool input_prepareDynamicInput(run_t* run) {
     memcpy(run->dynamicFile, run->dynfileqCurrent->data, run->dynfileqCurrent->size);
     if (run->dynfileqCurrent->mutator_state) {
         mutation_status = run->global->mutator.funcs.mutate_extended(run->dynfileqCurrent->mutator_state,
-            (char *)run->dynamicFile, run->global->maxFileSz, MUTATE_THREAD_SAFE);
+            (char *)run->dynamicFile, run->global->mutate.maxFileSz, MUTATE_THREAD_SAFE);
         if (mutation_status < 0) { //mutator failed to mutate buffer
             LOG_F("Mutator %s failed to mutate the given buffer", run->global->mutator.libraryFile);
         } else if(mutation_status == 0) { //mutator has finished all possible mutations on buffer
@@ -376,7 +379,7 @@ void cleanupMutator(honggfuzz_t * hfuzz) {
 
     //Cleanup dynamic file mutators
     struct dynfile_t* dynfile, *prev_dynfile;
-    dynfile = TAILQ_FIRST(&hfuzz->dynfileq);
+    dynfile = TAILQ_FIRST(&hfuzz->io.dynfileq);
     while(dynfile) {
         prev_dynfile = dynfile;
         dynfile = TAILQ_NEXT(dynfile, pointers);
@@ -388,8 +391,8 @@ void cleanupMutator(honggfuzz_t * hfuzz) {
 
     //Cleanup static file mutators
     struct mutator_state_t* state, *prev;
-    MX_SCOPED_RWLOCK_WRITE(&hfuzz->static_mutator_mutex);
-    state = TAILQ_FIRST(&hfuzz->staticMutators);
+    MX_SCOPED_RWLOCK_WRITE(&hfuzz->mutator.static_mutator_mutex);
+    state = TAILQ_FIRST(&hfuzz->mutator.staticMutators);
     while(state) {
         prev = state;
         state = TAILQ_NEXT(state, pointers);
@@ -398,7 +401,7 @@ void cleanupMutator(honggfuzz_t * hfuzz) {
         }
         free(prev);
     }
-    TAILQ_INIT(&hfuzz->staticMutators);
+    TAILQ_INIT(&hfuzz->mutator.staticMutators);
 
     //Close the mutator library
     dlclose(hfuzz->mutator.libraryHandle);
@@ -406,19 +409,19 @@ void cleanupMutator(honggfuzz_t * hfuzz) {
 }
 
 struct mutator_state_t * getMutatorState(honggfuzz_t * hfuzz, char * fname, uint8_t * buffer, size_t length) {
-    MX_RWLOCK_READ(&hfuzz->static_mutator_mutex);
-    struct mutator_state_t* state = TAILQ_FIRST(&hfuzz->staticMutators);
+    MX_RWLOCK_READ(&hfuzz->mutator.static_mutator_mutex);
+    struct mutator_state_t* state = TAILQ_FIRST(&hfuzz->mutator.staticMutators);
     while(state) {
         if (!strcmp(state->filename, fname)) {
-            MX_RWLOCK_UNLOCK(&hfuzz->static_mutator_mutex);
+            MX_RWLOCK_UNLOCK(&hfuzz->mutator.static_mutator_mutex);
             return state;
         }
         state = TAILQ_NEXT(state, pointers);
     }
 
     //Not found, create one
-    MX_RWLOCK_UNLOCK(&hfuzz->static_mutator_mutex);
-    MX_RWLOCK_WRITE(&hfuzz->static_mutator_mutex);
+    MX_RWLOCK_UNLOCK(&hfuzz->mutator.static_mutator_mutex);
+    MX_RWLOCK_WRITE(&hfuzz->mutator.static_mutator_mutex);
 
     state = (struct mutator_state_t*)util_Malloc(sizeof(struct mutator_state_t));
     snprintf(state->filename, sizeof(state->filename), "%s", fname);
@@ -426,8 +429,8 @@ struct mutator_state_t * getMutatorState(honggfuzz_t * hfuzz, char * fname, uint
     if (!state->state) {
         LOG_F("Failed to create mutator for %s with options %s", fname, hfuzz->mutator.options)
     }
-    TAILQ_INSERT_TAIL(&hfuzz->staticMutators, state, pointers);
-    MX_RWLOCK_UNLOCK(&hfuzz->static_mutator_mutex);
+    TAILQ_INSERT_TAIL(&hfuzz->mutator.staticMutators, state, pointers);
+    MX_RWLOCK_UNLOCK(&hfuzz->mutator.static_mutator_mutex);
     return state;
 }
 
@@ -439,7 +442,7 @@ bool input_prepareStaticFile(run_t* run, bool rewind) {
     }
     snprintf(run->origFileName, sizeof(run->origFileName), "%s", fname);
 
-    ssize_t fileSz = files_readFileToBufMax(fname, run->dynamicFile, run->global->maxFileSz);
+    ssize_t fileSz = files_readFileToBufMax(fname, run->dynamicFile, run->global->mutate.maxFileSz);
     if (fileSz < 0) {
         LOG_E("Couldn't read contents of '%s'", fname);
         return false;
@@ -450,7 +453,7 @@ bool input_prepareStaticFile(run_t* run, bool rewind) {
         struct mutator_state_t * state = getMutatorState(run->global, fname, run->dynamicFile, fileSz);
         if (state->state) {
             mutation_status = run->global->mutator.funcs.mutate_extended(state->state,
-                (char *)run->dynamicFile, run->global->maxFileSz, MUTATE_THREAD_SAFE);
+                (char *)run->dynamicFile, run->global->mutate.maxFileSz, MUTATE_THREAD_SAFE);
             if (mutation_status < 0) { //mutator failed to mutate buffer
                 LOG_F("Mutator %s failed to mutate %s", run->global->mutator.libraryFile, fname);
             } else if (mutation_status == 0) { //mutator has finished all possible mutations on buffer
@@ -492,7 +495,7 @@ bool input_prepareExternalFile(run_t* run) {
     }
     LOG_D("Subporcess '%s' finished with success", run->global->exe.externalCommand);
 
-    ssize_t sz = files_readFromFdSeek(fd, run->dynamicFile, run->global->maxFileSz, 0);
+    ssize_t sz = files_readFromFdSeek(fd, run->dynamicFile, run->global->mutate.maxFileSz, 0);
     if (sz == -1) {
         LOG_E("Couldn't read file from fd=%d", fd);
         return false;
@@ -523,7 +526,7 @@ bool input_postProcessFile(run_t* run) {
     }
     LOG_D("Subporcess '%s' finished with success", run->global->exe.externalCommand);
 
-    ssize_t sz = files_readFromFdSeek(fd, run->dynamicFile, run->global->maxFileSz, 0);
+    ssize_t sz = files_readFromFdSeek(fd, run->dynamicFile, run->global->mutate.maxFileSz, 0);
     if (sz == -1) {
         LOG_E("Couldn't read file from fd=%d", fd);
         return false;
