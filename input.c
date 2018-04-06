@@ -349,8 +349,8 @@ bool input_prepareDynamicInput(run_t* run) {
     input_setSize(run, run->dynfileqCurrent->size);
     memcpy(run->dynamicFile, run->dynfileqCurrent->data, run->dynfileqCurrent->size);
     if (run->dynfileqCurrent->mutator_state) {
-        mutation_status = run->global->mutator.funcs.mutate_thread_safe(run->dynfileqCurrent->mutator_state,
-            (char *)run->dynamicFile, run->global->maxFileSz);
+        mutation_status = run->global->mutator.funcs.mutate_extended(run->dynfileqCurrent->mutator_state,
+            (char *)run->dynamicFile, run->global->maxFileSz, MUTATE_THREAD_SAFE);
         if (mutation_status < 0) { //mutator failed to mutate buffer
             LOG_F("Mutator %s failed to mutate the given buffer", run->global->mutator.libraryFile);
         } else if(mutation_status == 0) { //mutator has finished all possible mutations on buffer
@@ -449,8 +449,8 @@ bool input_prepareStaticFile(run_t* run, bool rewind) {
     if (run->global->mutator.libraryHandle) {
         struct mutator_state_t * state = getMutatorState(run->global, fname, run->dynamicFile, fileSz);
         if (state->state) {
-            mutation_status = run->global->mutator.funcs.mutate_thread_safe(state->state,
-                (char *)run->dynamicFile, run->global->maxFileSz);
+            mutation_status = run->global->mutator.funcs.mutate_extended(state->state,
+                (char *)run->dynamicFile, run->global->maxFileSz, MUTATE_THREAD_SAFE);
             if (mutation_status < 0) { //mutator failed to mutate buffer
                 LOG_F("Mutator %s failed to mutate %s", run->global->mutator.libraryFile, fname);
             } else if (mutation_status == 0) { //mutator has finished all possible mutations on buffer
