@@ -211,6 +211,10 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (hfuzz.mutator.libraryFile && (input_parseMutator(&hfuzz) == false)) {
+        LOG_F("Couldn't load mutator library %s", hfuzz.mutator.libraryFile);
+    }
+
     /*
      * So far, so good
      */
@@ -258,6 +262,9 @@ int main(int argc, char** argv) {
     }
     if (hfuzz.socketFuzzer.enabled) {
         cleanupSocketFuzzer();
+    }
+    if (hfuzz.mutator.libraryHandle) {
+        cleanupMutator(&hfuzz);
     }
 
     return EXIT_SUCCESS;
